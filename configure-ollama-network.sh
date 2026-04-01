@@ -20,7 +20,7 @@ IFACE=en0
 STATIC_IP=192.168.4.227
 SUBNET_MASK=255.255.255.0
 EXPECTED_GATEWAY=192.168.4.1
-DNS_SERVERS="8.8.8.8 8.8.4.4"
+DNS_SERVERS=(8.8.8.8 8.8.4.4)
 OLLAMA_PORT=11434
 OLLAMA_BIN=/opt/homebrew/bin/ollama
 
@@ -154,7 +154,7 @@ read -r "REPLY?Set static IP now? This will briefly drop your network. [y/N] "
 if [[ $REPLY =~ ^[Yy]$ ]]; then
     # networksetup does NOT require sudo for the current user's own network service
     networksetup -setmanual "$NETWORK_SERVICE" "$STATIC_IP" "$SUBNET_MASK" "$ROUTER_GW"
-    networksetup -setdnsservers "$NETWORK_SERVICE" $DNS_SERVERS
+    networksetup -setdnsservers "$NETWORK_SERVICE" "${DNS_SERVERS[@]}"
     ok "Static IP set to $STATIC_IP via networksetup."
     sleep 2
     NEW_IP=$(ipconfig getifaddr $IFACE 2>/dev/null || echo "not yet assigned")
