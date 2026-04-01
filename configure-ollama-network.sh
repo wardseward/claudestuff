@@ -100,20 +100,38 @@ fi
 hr
 info "Step 3 — Static IP configuration"
 
-CURRENT_IP=$(ipconfig getifaddr $IFACE 2>/dev/null || echo "unknown")
-CURRENT_GW=$(route -n get default 2>/dev/null | awk '/gateway/{print $2}' || echo "unknown")
-NETWORK_SERVICE=$(networksetup -listallnetworkservices 2>/dev/null \
-    | grep -i "wi-fi\|wifi\|ethernet\|en0" | head -1 || echo "")
+# Find the interface that currently holds the default route (works for Wi-Fi or Ethernet)
+ACTIVE_IFACE=$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')
+if [[ -z $ACTIVE_IFACE ]]; then
+    ACTIVE_IFACE=$IFACE   # fallback to en0
+fi
+info "Active interface (from default route): $ACTIVE_IFACE"
 
-info "Current interface $IFACE address : $CURRENT_IP"
-info "Current default gateway           : $CURRENT_GW"
-info "Detected network service          : $NETWORK_SERVICE"
+CURRENT_IP=$(ipconfig getifaddr "$ACTIVE_IFACE" 2>/dev/null || echo "unknown")
+CURRENT_GW=$(route -n get default 2>/dev/null | awk '/gateway:/{print $2}' || echo "unknown")
+
+info "Current interface $ACTIVE_IFACE address : $CURRENT_IP"
+info "Current default gateway                  : $CURRENT_GW"
+
+# Map interface → network service name using networksetup -listnetworkserviceorder
+# Output looks like: (Hardware Port: Wi-Fi, Device: en1)
+NETWORK_SERVICE=$(networksetup -listnetworkserviceorder 2>/dev/null \
+    | awk -v iface="$ACTIVE_IFACE" '
+        /^\([0-9]/ { svc = substr($0, index($0,$2)); gsub(/^[0-9]+\) /, "", svc) }
+        /Device: / { dev = $NF; gsub(/\)$/, "", dev); if (dev == iface) print svc }
+    ')
+
+info "Mapped network service name: '${NETWORK_SERVICE:-not detected}'"
+
+if [[ -z $NETWORK_SERVICE ]]; then
+    warn "Could not auto-detect service name. Available services:"
+    networksetup -listallnetworkservices | grep -v "^\*"
+    read -r "NETWORK_SERVICE?Enter exact service name shown above (e.g. 'Wi-Fi'): "
+fi
 
 if [[ $CURRENT_IP == "$STATIC_IP" ]]; then
     ok "Interface is already on $STATIC_IP."
-    # Check if it's DHCP or already static
-    DHCP_STATUS=$(networksetup -getinfo "$NETWORK_SERVICE" 2>/dev/null | grep "^IP address" || echo "")
-    info "networksetup -getinfo output:"
+    info "networksetup -getinfo '$NETWORK_SERVICE':"
     networksetup -getinfo "$NETWORK_SERVICE" 2>/dev/null || true
 else
     warn "Current IP ($CURRENT_IP) differs from target ($STATIC_IP)."
@@ -129,13 +147,6 @@ if [[ $CURRENT_GW != "$EXPECTED_GATEWAY" ]]; then
 else
     ok "Gateway confirmed: $CURRENT_GW"
     ROUTER_GW=$CURRENT_GW
-fi
-
-# Detect network service name if we didn't get it above
-if [[ -z $NETWORK_SERVICE ]]; then
-    info "Available network services:"
-    networksetup -listallnetworkservices
-    read -r "NETWORK_SERVICE?Enter the exact service name for $IFACE (e.g. 'Wi-Fi'): "
 fi
 
 info "Will configure: service='$NETWORK_SERVICE'  IP=$STATIC_IP  mask=$SUBNET_MASK  gw=$ROUTER_GW"
